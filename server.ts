@@ -11,18 +11,37 @@ dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-// Socket IDs are ephemeral. Active rooms therefore live in memory and are
-// rebuilt by users after a server restart instead of resurrecting dead users
-// from a JSON file. This keeps the server's room list authoritative.
+// Socket IDs are ephemeral. Rooms are kept in memory for fast access and
+// persisted with stable session tokens so a dev reload/server restart does
+// not invalidate a room code that is still visible to users.
+const ROOMS_FILE = path.join(__dirname, 'rooms-store.json');
 const activeRooms: Record<string, Room> = {};
 
 function loadRooms(): Record<string, Room> {
   return activeRooms;
 }
 
-function saveRooms(_roomsObj: Record<string, Room>) {
-  // Kept as a no-op so the existing event handlers remain easy to audit.
-  // Room mutations are already applied to activeRooms by reference.
+function saveRooms(roomsObj: Record<string, Room>) {
+  try {
+    const cleanObj: Record<string, any> = {};
+    for (const [code, room] of Object.entries(roomsObj)) {
+      room.lastActivity = Date.now();
+      cleanObj[code] = {
+        code: room.code,
+        name: room.name,
+        hostId: room.hostId,
+        duration: room.duration,
+        status: room.status,
+        startedAt: room.startedAt,
+        createdAt: room.createdAt,
+        lastActivity: room.lastActivity,
+        players: room.players,
+      };
+    }
+    fs.writeFileSync(ROOMS_FILE, JSON.stringify(cleanObj, null, 2), 'utf-8');
+  } catch (error) {
+    console.error('[Room Store] Failed to persist rooms:', error);
+  }
 }
 
 const app = express();
@@ -64,6 +83,27 @@ interface Room {
   startedAt?: number;
   createdAt: number;
   players: Record<string, PlayerState>;
+  lastActivity?: number;
+}
+
+restoreRooms();
+
+function restoreRooms() {
+  try {
+    if (!fs.existsSync(ROOMS_FILE)) return;
+    const parsed = JSON.parse(fs.readFileSync(ROOMS_FILE, 'utf-8'));
+    const now = Date.now();
+    for (const [code, room] of Object.entries(parsed || {})) {
+      const candidate = room as Room;
+      if (!candidate || candidate.code !== code || !candidate.players) continue;
+      // Abandoned rooms should not survive forever, but normal reloads keep
+      // the invite code valid long enough for both browsers to reconnect.
+      if (now - (candidate.lastActivity || candidate.createdAt || now) > 30 * 60 * 1000) continue;
+      activeRooms[code] = candidate;
+    }
+  } catch (error) {
+    console.error('[Room Store] Failed to restore rooms:', error);
+  }
 }
 
 function broadcastRoomList() {

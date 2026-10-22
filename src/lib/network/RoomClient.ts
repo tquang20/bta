@@ -137,6 +137,9 @@ export class RoomClient {
       useRoomStore.getState().setConnectionStatus('connected');
       this.startPingLoop();
 
+      // Refresh the lobby list whenever a tab connects or reconnects.
+      this.socket?.emit('rooms:list');
+
       // Auto-reconnect & restore active room on server to survive tab-sleep or server reload
       const currentCode = useRoomStore.getState().roomCode;
       const username = useRoomStore.getState().username;
@@ -546,7 +549,12 @@ export class RoomClient {
   }
 
   public fetchRoomList() {
-    this.connect().emit('rooms:list');
+    const sock = this.connect();
+    if (sock.connected) {
+      sock.emit('rooms:list');
+    } else {
+      sock.once('connect', () => sock.emit('rooms:list'));
+    }
   }
 
   public createRoom(username: string, duration: number, roomName?: string) {
