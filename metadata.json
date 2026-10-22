@@ -1,0 +1,6 @@
+{
+  "name": "King of aura",
+  "description": "King of aura: Zero-latency, motion-based competitive game featuring dynamic body calibration, hybrid WebRTC/WebSocket netcode, strict rhythm FSM, and real-time 1v1 duels.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
