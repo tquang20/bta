@@ -57,6 +57,12 @@ const io = new Server(server, {
 const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
+app.use('/api/rooms', (_req, res, next) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+  next();
+});
 
 interface PlayerState {
   id: string;
@@ -257,10 +263,11 @@ io.on('connection', (socket: Socket) => {
     sessionToken?: string;
   }) => {
     const formattedCode = (code || '').toUpperCase().trim().replace(/[^A-Z0-9]/g, '');
-    if (!formattedCode || formattedCode.length !== 4 || !sessionToken) {
-      roomError(socket, 'Phiên phòng không hợp lệ. Vui lòng tham gia lại bằng mã phòng.', 'INVALID_SESSION');
+    if (!formattedCode || formattedCode.length !== 4) {
+      roomError(socket, 'Mã phòng không hợp lệ. Vui lòng tham gia lại bằng mã phòng.', 'INVALID_ROOM_CODE');
       return;
     }
+    const stableSessionToken = sessionToken || `legacy:${socket.id}`;
 
     const rooms = loadRooms();
     const room = rooms[formattedCode];
@@ -269,7 +276,7 @@ io.on('connection', (socket: Socket) => {
       return;
     }
 
-    const existingEntry = Object.entries(room.players).find(([, player]) => player.sessionToken === sessionToken);
+    const existingEntry = Object.entries(room.players).find(([, player]) => player.sessionToken === stableSessionToken);
     if (!existingEntry && Object.keys(room.players).length >= 2) {
       roomError(socket, `Phòng "${room.name || formattedCode}" đã đủ 2 người chơi.`, 'ROOM_FULL');
       return;
@@ -287,18 +294,18 @@ io.on('connection', (socket: Socket) => {
       room.players[socket.id] = {
         ...oldPlayer,
         id: socket.id,
-        sessionToken,
+        sessionToken: stableSessionToken,
         username: username.trim() || oldPlayer.username,
       };
     } else {
-      room.players[socket.id] = createPlayer(socket, username || 'Người chơi', sessionToken);
+      room.players[socket.id] = createPlayer(socket, username || 'Người chơi', stableSessionToken);
     }
 
     if (!room.players[room.hostId]) room.hostId = socket.id;
     saveRooms(rooms);
     currentRoomCode = formattedCode;
     socket.data.roomCode = formattedCode;
-    socket.data.sessionToken = sessionToken;
+    socket.data.sessionToken = stableSessionToken;
     socket.join(formattedCode);
     socket.emit('room:joined', { room, playerId: socket.id, isHost: room.hostId === socket.id });
     emitRoomUpdated(room);
@@ -317,10 +324,7 @@ io.on('connection', (socket: Socket) => {
   }) => {
     leaveCurrentRoom(true);
 
-    if (!sessionToken) {
-      roomError(socket, 'Không thể tạo phòng vì thiếu mã phiên người chơi.', 'INVALID_SESSION');
-      return;
-    }
+    const stableSessionToken = sessionToken || `legacy:${socket.id}`;
 
     const rooms = loadRooms();
     let code = generateRoomCode();
@@ -339,7 +343,7 @@ io.on('connection', (socket: Socket) => {
       status: 'lobby',
       createdAt: Date.now(),
       players: {
-        [socket.id]: createPlayer(socket, hostName, sessionToken),
+        [socket.id]: createPlayer(socket, hostName, stableSessionToken),
       },
     };
 
@@ -347,7 +351,7 @@ io.on('connection', (socket: Socket) => {
     saveRooms(rooms);
     currentRoomCode = code;
     socket.data.roomCode = code;
-    socket.data.sessionToken = sessionToken;
+    socket.data.sessionToken = stableSessionToken;
     socket.join(code);
 
     socket.emit('room:created', { room, playerId: socket.id });
@@ -362,10 +366,7 @@ io.on('connection', (socket: Socket) => {
       roomError(socket, 'Mã phòng phải gồm đúng 4 ký tự chữ và số!', 'INVALID_ROOM_CODE');
       return;
     }
-    if (!sessionToken) {
-      roomError(socket, 'Không thể tham gia phòng vì thiếu mã phiên người chơi.', 'INVALID_SESSION');
-      return;
-    }
+    const stableSessionToken = sessionToken || `legacy:${socket.id}`;
 
     const rooms = loadRooms();
     const room = rooms[formattedCode];
@@ -375,7 +376,7 @@ io.on('connection', (socket: Socket) => {
     }
 
     const currentPlayers = Object.keys(room.players);
-    const existingEntry = Object.entries(room.players).find(([, player]) => player.sessionToken === sessionToken);
+    const existingEntry = Object.entries(room.players).find(([, player]) => player.sessionToken === stableSessionToken);
     if (currentPlayers.length >= 2 && !existingEntry) {
       roomError(socket, `Phòng "${room.name || formattedCode}" đã đủ 2 người chơi (tối đa 2 người đối kháng).`, 'ROOM_FULL');
       return;
@@ -393,14 +394,14 @@ io.on('connection', (socket: Socket) => {
       room.players[socket.id] = {
         ...oldPlayer,
         id: socket.id,
-        sessionToken,
+        sessionToken: stableSessionToken,
         username: (username || '').trim() || oldPlayer.username,
       };
     } else {
       room.players[socket.id] = createPlayer(
         socket,
         (username || '').trim() || (currentPlayers.length === 0 ? 'Chủ Phòng' : 'Người Thách Đấu'),
-        sessionToken,
+        stableSessionToken,
       );
     }
 
@@ -411,7 +412,7 @@ io.on('connection', (socket: Socket) => {
     saveRooms(rooms);
     currentRoomCode = formattedCode;
     socket.data.roomCode = formattedCode;
-    socket.data.sessionToken = sessionToken;
+    socket.data.sessionToken = stableSessionToken;
     socket.join(formattedCode);
 
     socket.emit('room:joined', { room, playerId: socket.id, isHost: room.hostId === socket.id });

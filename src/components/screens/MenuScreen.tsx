@@ -75,7 +75,7 @@ export const MenuScreen: React.FC<MenuScreenProps> = ({ onStartSolo, onEnterLobb
     // 2. Fetch initial room list
     const fetchRooms = async () => {
       try {
-        const res = await fetch('/api/rooms');
+        const res = await fetch(`/api/rooms?ts=${Date.now()}`, { cache: 'no-store' });
         if (res.ok) {
           const data = await res.json();
           if (data && Array.isArray(data.rooms)) {
@@ -101,7 +101,7 @@ export const MenuScreen: React.FC<MenuScreenProps> = ({ onStartSolo, onEnterLobb
     setIsRefreshingRooms(true);
     roomClient.fetchRoomList();
     try {
-      const res = await fetch('/api/rooms');
+      const res = await fetch(`/api/rooms?ts=${Date.now()}`, { cache: 'no-store' });
       if (res.ok) {
         const data = await res.json();
         if (data && Array.isArray(data.rooms)) {
